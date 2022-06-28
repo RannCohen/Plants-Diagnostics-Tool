@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "lcd16x2_i2c.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -41,9 +42,17 @@
 /* Private variables ---------------------------------------------------------*/
  ADC_HandleTypeDef hadc1;
 
+I2C_HandleTypeDef hi2c1;
+
 /* USER CODE BEGIN PV */
 uint32_t soilRead;
+uint8_t soilPercent;
+
 uint32_t lightRead;
+uint8_t lightPercent;
+
+uint8_t buttonread = 0;
+uint8_t buttonState = 0;
 ADC_ChannelConfTypeDef sConfig = {0};
 /* USER CODE END PV */
 
@@ -51,8 +60,11 @@ ADC_ChannelConfTypeDef sConfig = {0};
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
-void readAdc(void);
+void readAdc0(void);
+void readAdc1(void);
+void buttonCheck(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -89,16 +101,52 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_ADC1_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-
+  if(lcd16x2_i2c_init(&hi2c1))
+  {
+	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	  lcd16x2_i2c_clear();
+	  lcd16x2_i2c_1stLine();
+	  lcd16x2_i2c_printf("  Hello Maya!");
+	  lcd16x2_i2c_2ndLine();
+	  lcd16x2_i2c_printf("  i'm ALIVE!!!");
+	  HAL_Delay(2000);
+	  lcd16x2_i2c_clear();
+	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+  }
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  readAdc();
-	  HAL_Delay(200);
+	  buttonCheck();
+	  if(buttonState == 0)
+	  {
+		  readAdc0();
+		  lcd16x2_i2c_1stLine();
+		  lcd16x2_i2c_printf(" Mode 1 - Light  ");
+		  lcd16x2_i2c_2ndLine();
+		  lcd16x2_i2c_printf("Light Read: %d%c ", lightPercent, 37);
+	  }
+	  else if(buttonState == 1)
+	  {
+		  readAdc1();
+		  lcd16x2_i2c_1stLine();
+		  lcd16x2_i2c_printf(" Mode 2 - Soil  ");
+		  lcd16x2_i2c_2ndLine();
+		  lcd16x2_i2c_printf("Soil Read: %d%c  ", soilPercent, 37);
+	  }
+	  else
+	  {
+		  lcd16x2_i2c_1stLine();
+		  lcd16x2_i2c_printf("Push Mode Button");
+		  lcd16x2_i2c_2ndLine();
+		  lcd16x2_i2c_printf("    *****");
+	  }
+	  HAL_Delay(100);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -215,6 +263,54 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x00707CBB;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -230,6 +326,12 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin : BUTTON_Pin */
+  GPIO_InitStruct.Pin = BUTTON_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
+
   /*Configure GPIO pin : LED_Pin */
   GPIO_InitStruct.Pin = LED_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -240,36 +342,62 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-void readAdc(void)
+
+/* Read PA0 */
+void readAdc0(void)
 {
 	 sConfig.Channel = ADC_CHANNEL_5;
-	  sConfig.Rank = ADC_REGULAR_RANK_1;
-	  sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
-	  sConfig.SingleDiff = ADC_SINGLE_ENDED;
-	  sConfig.OffsetNumber = ADC_OFFSET_NONE;
-	  sConfig.Offset = 0;
-	  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-	  {
-	    Error_Handler();
-	  }
+	 sConfig.Rank = ADC_REGULAR_RANK_1;
+	 sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
+	 sConfig.SingleDiff = ADC_SINGLE_ENDED;
+	 sConfig.OffsetNumber = ADC_OFFSET_NONE;
+	 sConfig.Offset = 0;
+	 if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+	 {
+	   Error_Handler();
+	 }
 
 	 HAL_ADC_Start(&hadc1);
 	 HAL_ADC_PollForConversion(&hadc1, 5);
 	 lightRead = HAL_ADC_GetValue(&hadc1);
 	 HAL_ADC_Stop(&hadc1);
-	 HAL_Delay(50);
-
-	 sConfig.Channel = ADC_CHANNEL_6;
-	 if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-	 {
-		 Error_Handler();
-	 }
-	 HAL_ADC_Start(&hadc1);
-	 HAL_ADC_PollForConversion(&hadc1, 5);
-	 soilRead = HAL_ADC_GetValue(&hadc1);
-	 HAL_ADC_Stop(&hadc1);
-	 HAL_Delay(50);
+	 lightPercent = (lightRead * 100) / 4095;
+	 if(lightPercent >= 80)
+		 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	 else if(lightPercent >= 70)
+		 HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	 else
+		 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	 HAL_Delay(20);
 }
+
+/* Read PA1 */
+void readAdc1(void)
+{
+	sConfig.Channel = ADC_CHANNEL_6;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	HAL_ADC_Start(&hadc1);
+	HAL_ADC_PollForConversion(&hadc1, 5);
+	soilRead = HAL_ADC_GetValue(&hadc1);
+	HAL_ADC_Stop(&hadc1);
+	soilPercent = (soilRead * 100) / 4095;
+	HAL_Delay(20);
+}
+
+/* check that buttonMode is 0 or 1 */
+void buttonCheck(void)
+{
+	buttonread = HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin);
+	if(buttonread)
+		buttonState++;
+	if(buttonState % 2 == 0)
+		buttonState = 0;
+}
+
+
 /* USER CODE END 4 */
 
 /**

@@ -51,7 +51,7 @@ uint8_t soilPercent;
 uint32_t lightRead;
 uint8_t lightPercent;
 
-uint8_t buttonread = 0;
+uint32_t currTime, prevTime = 0, bounceTime = 30;
 uint8_t buttonState = 0;
 ADC_ChannelConfTypeDef sConfig = {0};
 /* USER CODE END PV */
@@ -64,7 +64,6 @@ static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void readAdc0(void);
 void readAdc1(void);
-void buttonCheck(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -110,7 +109,7 @@ int main(void)
 	  lcd16x2_i2c_1stLine();
 	  lcd16x2_i2c_printf("  Hello Maya!");
 	  lcd16x2_i2c_2ndLine();
-	  lcd16x2_i2c_printf("  i'm ALIVE!!!");
+	  lcd16x2_i2c_printf(" Nice plants :)");
 	  HAL_Delay(2000);
 	  lcd16x2_i2c_clear();
 	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
@@ -121,14 +120,13 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  buttonCheck();
 	  if(buttonState == 0)
 	  {
 		  readAdc0();
 		  lcd16x2_i2c_1stLine();
 		  lcd16x2_i2c_printf(" Mode 1 - Light  ");
 		  lcd16x2_i2c_2ndLine();
-		  lcd16x2_i2c_printf("Light Read: %d%c ", lightPercent, 37);
+		  lcd16x2_i2c_printf("Light Read: %3d%c ", lightPercent, 37);
 	  }
 	  else if(buttonState == 1)
 	  {
@@ -136,7 +134,7 @@ int main(void)
 		  lcd16x2_i2c_1stLine();
 		  lcd16x2_i2c_printf(" Mode 2 - Soil  ");
 		  lcd16x2_i2c_2ndLine();
-		  lcd16x2_i2c_printf("Soil Read: %d%c  ", soilPercent, 37);
+		  lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
 	  }
 	  else
 	  {
@@ -328,8 +326,8 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : BUTTON_Pin */
   GPIO_InitStruct.Pin = BUTTON_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_Pin */
@@ -338,6 +336,10 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI3_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI3_IRQn);
 
 }
 
@@ -387,16 +389,20 @@ void readAdc1(void)
 	HAL_Delay(20);
 }
 
-/* check that buttonMode is 0 or 1 */
-void buttonCheck(void)
-{
-	buttonread = HAL_GPIO_ReadPin(BUTTON_GPIO_Port, BUTTON_Pin);
-	if(buttonread)
-		buttonState++;
-	if(buttonState % 2 == 0)
-		buttonState = 0;
-}
+/* handle the interrupt */
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+	currTime = HAL_GetTick();
+
+	if(GPIO_Pin == BUTTON_Pin && (currTime - prevTime) > bounceTime)
+	{
+		buttonState++;
+		if(buttonState % 2 == 0)
+				buttonState = 0;
+		prevTime = currTime;
+	}
+}
 
 /* USER CODE END 4 */
 

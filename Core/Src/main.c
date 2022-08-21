@@ -1,20 +1,20 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2022 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2022 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
@@ -40,20 +40,28 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
- ADC_HandleTypeDef hadc1;
+ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
 /* USER CODE BEGIN PV */
+//GPIO_InitTypeDef GPIO_InitStruct = {0};
+/* Soil Sensor */
 uint32_t soilRead;
 uint8_t soilPercent;
 
+/* Photoresistor */
 uint32_t lightRead;
 uint8_t lightPercent;
 
-uint32_t currTime, prevTime = 0, bounceTime = 30;
+/* DTH11 */
+
+uint8_t buttonSem = 1;
 uint8_t buttonState = 0;
-ADC_ChannelConfTypeDef sConfig = {0};
+ADC_ChannelConfTypeDef sConfig = { 0 };
+uint32_t tNow = 0;
+uint32_t tPrevius = 0;
+uint8_t buttonDelay = 200;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -64,6 +72,7 @@ static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 void readAdc0(void);
 void readAdc1(void);
+void buttonStateFunc(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -102,53 +111,59 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
-  if(lcd16x2_i2c_init(&hi2c1))
-  {
-	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-	  lcd16x2_i2c_clear();
-	  lcd16x2_i2c_1stLine();
-	  lcd16x2_i2c_printf("  Hello Maya!");
-	  lcd16x2_i2c_2ndLine();
-	  lcd16x2_i2c_printf(" Nice plants :)");
-	  HAL_Delay(2000);
-	  lcd16x2_i2c_clear();
-	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-  }
+	HAL_Delay(1000);
+	if (lcd16x2_i2c_init(&hi2c1)) {
+		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+		lcd16x2_i2c_clear();
+		lcd16x2_i2c_1stLine();
+		lcd16x2_i2c_printf("  Hello Maya!");
+		lcd16x2_i2c_2ndLine();
+		lcd16x2_i2c_printf(" Nice plants :)");
+		HAL_Delay(2000);
+		lcd16x2_i2c_clear();
+		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	}
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
-	  if(buttonState == 0)
-	  {
-		  readAdc0();
-		  lcd16x2_i2c_1stLine();
-		  lcd16x2_i2c_printf(" Mode 1 - Light  ");
-		  lcd16x2_i2c_2ndLine();
-		  lcd16x2_i2c_printf("Light Read: %3d%c ", lightPercent, 37);
-	  }
-	  else if(buttonState == 1)
-	  {
-		  readAdc1();
-		  lcd16x2_i2c_1stLine();
-		  lcd16x2_i2c_printf(" Mode 2 - Soil  ");
-		  lcd16x2_i2c_2ndLine();
-		  lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
-	  }
-	  else
-	  {
-		  lcd16x2_i2c_1stLine();
-		  lcd16x2_i2c_printf("Push Mode Button");
-		  lcd16x2_i2c_2ndLine();
-		  lcd16x2_i2c_printf("    *****");
-	  }
-	  HAL_Delay(100);
+	while (1) {
+		if (buttonState == 0) {
+			readAdc0();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf(" Mode 1 - Light  ");
+			lcd16x2_i2c_2ndLine();
+			lcd16x2_i2c_printf("Light Read: %3d%c ", lightPercent, 37);
+		} else if (buttonState == 1) {
+			readAdc1();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf(" Mode 2 - Soil  ");
+			lcd16x2_i2c_2ndLine();
+			lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
+		} else if (buttonState == 2) {
+//			readAdc1();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf(" Mode 3 - Humid  ");
+			lcd16x2_i2c_2ndLine();
+			lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
+		} else if (buttonState == 3) {
+//			readAdc1();
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf(" Mode 4 - Temp  ");
+			lcd16x2_i2c_2ndLine();
+			lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
+		} else {
+			lcd16x2_i2c_1stLine();
+			lcd16x2_i2c_printf("Push Mode Button");
+			lcd16x2_i2c_2ndLine();
+			lcd16x2_i2c_printf("    *****");
+		}
+		HAL_Delay(100);
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-  }
+	}
   /* USER CODE END 3 */
 }
 
@@ -245,11 +260,11 @@ static void MX_ADC1_Init(void)
   /** Configure Regular Channel
   */
 //  sConfig.Channel = ADC_CHANNEL_5;
-//  sConfig.Rank = ADC_REGULAR_RANK_1;
-//  sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
-//  sConfig.SingleDiff = ADC_SINGLE_ENDED;
-//  sConfig.OffsetNumber = ADC_OFFSET_NONE;
-//  sConfig.Offset = 0;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
 //  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
 //  {
 //    Error_Handler();
@@ -322,6 +337,9 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(DHT11_GPIO_Port, DHT11_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : BUTTON_Pin */
@@ -329,6 +347,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BUTTON_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : DHT11_Pin */
+  GPIO_InitStruct.Pin = DHT11_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(DHT11_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_Pin */
   GPIO_InitStruct.Pin = LED_Pin;
@@ -346,41 +371,34 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 
 /* Read PA0 */
-void readAdc0(void)
-{
-	 sConfig.Channel = ADC_CHANNEL_5;
-	 sConfig.Rank = ADC_REGULAR_RANK_1;
-	 sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
-	 sConfig.SingleDiff = ADC_SINGLE_ENDED;
-	 sConfig.OffsetNumber = ADC_OFFSET_NONE;
-	 sConfig.Offset = 0;
-	 if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-	 {
-	   Error_Handler();
-	 }
+void readAdc0(void) {
+	sConfig.Channel = ADC_CHANNEL_5;
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
+		Error_Handler();
+	}
 
-	 HAL_ADC_Start(&hadc1);
-	 HAL_ADC_PollForConversion(&hadc1, 5);
-	 lightRead = HAL_ADC_GetValue(&hadc1);
-	 HAL_ADC_Stop(&hadc1);
-	 lightPercent = (lightRead * 100) / 4095;
-	 if(lightPercent >= 80)
-		 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-	 else if(lightPercent >= 70)
-		 HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	 else
-		 HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-	 HAL_Delay(20);
+	HAL_ADC_Start(&hadc1);
+	HAL_ADC_PollForConversion(&hadc1, 5);
+	lightRead = HAL_ADC_GetValue(&hadc1);
+	HAL_ADC_Stop(&hadc1);
+	lightPercent = (lightRead * 100) / 4095;
+	if (lightPercent >= 80) {
+		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	} else if (lightPercent >= 65) {
+		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	} else {
+		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	}
+	HAL_Delay(20);
 }
 
 /* Read PA1 */
-void readAdc1(void)
-{
+void readAdc1(void) {
 	sConfig.Channel = ADC_CHANNEL_6;
-	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-	{
+	if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK) {
 		Error_Handler();
 	}
+
 	HAL_ADC_Start(&hadc1);
 	HAL_ADC_PollForConversion(&hadc1, 5);
 	soilRead = HAL_ADC_GetValue(&hadc1);
@@ -389,18 +407,32 @@ void readAdc1(void)
 	HAL_Delay(20);
 }
 
+/* DTH init */
+void DHT11_init(void)
+{
+
+}
+
+/* check button press */
+void buttonStateFunc(void) {
+	tNow = HAL_GetTick();
+
+	if (buttonSem == 1 && (tNow - tPrevius > buttonDelay)) {
+		buttonSem = 0;
+		buttonState++;
+		if (buttonState % 4 == 0) {
+			buttonState = 0;
+		}
+		buttonSem = 1;
+		tPrevius = tNow;
+	}
+}
+
 /* handle the interrupt */
 
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
-{
-	currTime = HAL_GetTick();
-
-	if(GPIO_Pin == BUTTON_Pin && (currTime - prevTime) > bounceTime)
-	{
-		buttonState++;
-		if(buttonState % 2 == 0)
-				buttonState = 0;
-		prevTime = currTime;
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == BUTTON_Pin) {
+		buttonStateFunc();
 	}
 }
 
@@ -413,11 +445,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+	/* User can add his own implementation to report the HAL error return state */
+	__disable_irq();
+	while (1) {
+	}
   /* USER CODE END Error_Handler_Debug */
 }
 

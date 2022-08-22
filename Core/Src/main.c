@@ -44,8 +44,12 @@ ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
 
+TIM_HandleTypeDef htim6;
+
 /* USER CODE BEGIN PV */
-//GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+ADC_ChannelConfTypeDef sConfig = { 0 };
+
 /* Soil Sensor */
 uint32_t soilRead;
 uint8_t soilPercent;
@@ -54,14 +58,18 @@ uint8_t soilPercent;
 uint32_t lightRead;
 uint8_t lightPercent;
 
-/* DTH11 */
+/* DHT11 */
+uint8_t Rh_byte1, Rh_byte2, Temp_byte1, Temp_byte2, precence = 0;
+uint16_t sum, RH, temp;
+float temperature = 0, humidity = 0;
 
+/* button stuff */
 uint8_t buttonSem = 1;
 uint8_t buttonState = 0;
-ADC_ChannelConfTypeDef sConfig = { 0 };
 uint32_t tNow = 0;
 uint32_t tPrevius = 0;
 uint8_t buttonDelay = 200;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -69,10 +77,17 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 void readAdc0(void);
 void readAdc1(void);
 void buttonStateFunc(void);
+void delay(uint16_t time);
+void setPinInput(GPIO_TypeDef *GPIOx, uint16_t gpio_pin);
+void setPinOutput(GPIO_TypeDef *GPIOx, uint16_t gpio_pin);
+void DHTstart(void);
+uint8_t DHT11_Read(void);
+uint8_t Check_Response(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -110,14 +125,17 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 	HAL_Delay(1000);
+	HAL_TIM_Base_Start(&htim6);
 	if (lcd16x2_i2c_init(&hi2c1)) {
 		HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
 		lcd16x2_i2c_clear();
 		lcd16x2_i2c_1stLine();
 		lcd16x2_i2c_printf("  Hello Maya!");
 		lcd16x2_i2c_2ndLine();
+		HAL_Delay(1000);
 		lcd16x2_i2c_printf(" Nice plants :)");
 		HAL_Delay(2000);
 		lcd16x2_i2c_clear();
@@ -128,31 +146,64 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 	while (1) {
-		if (buttonState == 0) {
+		if (buttonState == 0)
+		{
 			readAdc0();
 			lcd16x2_i2c_1stLine();
 			lcd16x2_i2c_printf(" Mode 1 - Light  ");
 			lcd16x2_i2c_2ndLine();
 			lcd16x2_i2c_printf("Light Read: %3d%c ", lightPercent, 37);
-		} else if (buttonState == 1) {
+		}
+		else if (buttonState == 1)
+		{
 			readAdc1();
 			lcd16x2_i2c_1stLine();
 			lcd16x2_i2c_printf(" Mode 2 - Soil  ");
 			lcd16x2_i2c_2ndLine();
 			lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
-		} else if (buttonState == 2) {
-//			readAdc1();
+		}
+		else if (buttonState == 2)
+		{
+			DHTstart();
+			precence = Check_Response();
+			// read 40 bits || 5 bytes
+			Rh_byte1 = DHT11_Read();
+			Rh_byte2 = DHT11_Read();
+			Temp_byte1 = DHT11_Read();
+			Temp_byte2 = DHT11_Read();
+			sum = DHT11_Read();
+
+			temp = Temp_byte1;
+			RH = Rh_byte1;
+
+			humidity = (float)RH;
 			lcd16x2_i2c_1stLine();
-			lcd16x2_i2c_printf(" Mode 3 - Humid  ");
+			lcd16x2_i2c_printf(" Mode 3 - Humid");
 			lcd16x2_i2c_2ndLine();
-			lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
-		} else if (buttonState == 3) {
-//			readAdc1();
+			lcd16x2_i2c_printf("Humidity: %.2f ", humidity);
+		}
+		else if (buttonState == 3)
+		{
+			DHTstart();
+			precence = Check_Response();
+			// read 40 bits || 5 bytes
+			Rh_byte1 = DHT11_Read();
+			Rh_byte2 = DHT11_Read();
+			Temp_byte1 = DHT11_Read();
+			Temp_byte2 = DHT11_Read();
+			sum = DHT11_Read();
+
+			temp = Temp_byte1;
+			RH = Rh_byte1;
+
+			temperature = (float)temp;
 			lcd16x2_i2c_1stLine();
-			lcd16x2_i2c_printf(" Mode 4 - Temp  ");
+			lcd16x2_i2c_printf(" Mode 4 - Temp");
 			lcd16x2_i2c_2ndLine();
-			lcd16x2_i2c_printf("Soil Read: %3d%c  ", soilPercent, 37);
-		} else {
+			lcd16x2_i2c_printf("Temp Read: %.2f", temperature);
+		}
+		else
+		{
 			lcd16x2_i2c_1stLine();
 			lcd16x2_i2c_printf("Push Mode Button");
 			lcd16x2_i2c_2ndLine();
@@ -193,7 +244,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_MSI;
   RCC_OscInitStruct.PLL.PLLM = 1;
-  RCC_OscInitStruct.PLL.PLLN = 16;
+  RCC_OscInitStruct.PLL.PLLN = 25;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV7;
   RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
   RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
@@ -211,7 +262,7 @@ void SystemClock_Config(void)
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -259,16 +310,16 @@ static void MX_ADC1_Init(void)
 
   /** Configure Regular Channel
   */
-//  sConfig.Channel = ADC_CHANNEL_5;
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_24CYCLES_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
-//  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-//  {
-//    Error_Handler();
-//  }
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
@@ -291,7 +342,7 @@ static void MX_I2C1_Init(void)
 
   /* USER CODE END I2C1_Init 1 */
   hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00707CBB;
+  hi2c1.Init.Timing = 0x00C0EAFF;
   hi2c1.Init.OwnAddress1 = 0;
   hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
@@ -324,6 +375,44 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 49;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 65534;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -351,7 +440,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : DHT11_Pin */
   GPIO_InitStruct.Pin = DHT11_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(DHT11_GPIO_Port, &GPIO_InitStruct);
 
@@ -407,10 +496,80 @@ void readAdc1(void) {
 	HAL_Delay(20);
 }
 
-/* DTH init */
-void DHT11_init(void)
+/* DHT11 FUNCTIONS */
+void delay(uint16_t time) // set delay in **ms**
 {
+	__HAL_TIM_SET_COUNTER(&htim6,0); // set timer to 0
+	while(__HAL_TIM_GET_COUNTER(&htim6)>time); // count from 0 to time
+}
 
+void setPinInput(GPIO_TypeDef *GPIOx, uint16_t gpio_pin)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	GPIO_InitStruct.Pin = DHT11_Pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_PULLUP;
+	HAL_GPIO_Init(GPIOx, &GPIO_InitStruct);
+}
+
+void setPinOutput(GPIO_TypeDef *GPIOx, uint16_t gpio_pin)
+{
+	GPIO_InitTypeDef GPIO_InitStruct = {0};
+	GPIO_InitStruct.Pin = gpio_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+	GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+	HAL_GPIO_Init(GPIOx, &GPIO_InitStruct);
+}
+
+void DHTstart(void)
+{
+	setPinOutput(DHT11_GPIO_Port, DHT11_Pin);
+	HAL_GPIO_WritePin(DHT11_GPIO_Port, DHT11_Pin, 0); //set pin to 0
+	delay(18000); //delay 18 **ms**
+	HAL_GPIO_WritePin(DHT11_GPIO_Port, DHT11_Pin, 1); //set pin to 1
+	delay(20); // delay 20 **us**
+	setPinInput(DHT11_GPIO_Port, DHT11_Pin);
+}
+
+uint8_t Check_Response(void)
+{
+	uint8_t Response = 0;
+	delay(40);
+	if(!(HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin)))
+	{
+		delay(80);
+		if((HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin)))
+		{
+			Response = 1;
+		}
+		else
+		{
+			Response = -1;
+		}
+	}
+	while((HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin)));   // wait for the pin to go low
+
+	return Response;
+}
+
+uint8_t DHT11_Read(void)
+{
+	uint8_t i;
+	for(uint8_t j = 0; j < 8; j++)
+	{
+		while (!(HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin)));   // wait for the pin to go high
+		delay (40);   // wait for 40 us
+		if (!(HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin)))   // if the pin is low
+		{
+			i &= ~(1 << (7-j));   // write 0
+		}
+		else
+		{
+			i |= (1 << (7-j));  // if the pin is high, write 1
+		}
+		while ((HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin)));  // wait for the pin to go low
+	}
+	return i;
 }
 
 /* check button press */
